@@ -60,6 +60,16 @@
      </rect>
     </property>
    </widget>
+   <widget class="QComboBox" name="categoryFilterComboBox">
+    <property name="geometry">
+     <rect>
+      <x>370</x>
+      <y>470</y>
+      <width>76</width>
+      <height>24</height>
+     </rect>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
