@@ -12,8 +12,8 @@ QT_END_NAMESPACE
 struct Category {
     QString name;
     QColor color; // Optional: to give each category a different color
-    QDate dueDate;
 };
+
 
 class MainWindow : public QMainWindow
 {
@@ -32,12 +32,16 @@ private slots:
     void on_listWidget_itemDoubleClicked(QListWidgetItem *item);
     void on_listWidget_itemClicked(QListWidgetItem *item);
     void on_categoryFilterComboBox_currentIndexChanged(int index);
+    void on_highPriorityCheckBox_stateChanged(int state);
 
 };
 
 class TodoItem : public QListWidgetItem {
 public:
     Category category;
+    bool isHighPriority = false;
 };
+
+
 
 #endif // MAINWINDOW_H
