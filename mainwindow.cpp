@@ -5,6 +5,13 @@
 #include <QInputDialog>
 #include <QPainter>
 #include <QSettings>
+#include <QMessageBox>
+#include <QVBoxLayout>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QDebug>
+#include <QObject>
+#include <QMetaObject>
 
 
 
@@ -13,6 +20,7 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+
 
     QSettings settings("IUT", "ToDoApp", this);
 
@@ -78,10 +86,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Add the priority levels to the combo box
 
     // Add the categories to the combo boxes
-    for (const auto &category : categories) {
-        ui->categoryComboBox->addItem(category.name);
-        ui->categoryFilterComboBox->addItem(category.name);
-    }
+    addCategoriesToComboboxes();
 
     // Add "All" category to the filter combo box
     ui->categoryFilterComboBox->insertItem(0, "All");
@@ -90,11 +95,17 @@ MainWindow::MainWindow(QWidget *parent)
     // Connect the signal/slot for adding tasks
     connect(ui->pushButton, &QPushButton::clicked, this, &MainWindow::on_pushButton_clicked);
 
-    // Connect the signal/slot for removing tasks
-    connect(ui->listWidget, &QListWidget::itemDoubleClicked, this, &MainWindow::on_listWidget_itemDoubleClicked);
+    //connect(ui->deleteButton, &QPushButton::clicked, this, &MainWindow::on_deleteButton_clicked);
 
-    // Connect the signal/slot for editing tasks
-    connect(ui->listWidget, &QListWidget::itemClicked, this, &MainWindow::on_listWidget_itemClicked);
+    QObject::connect(ui->deleteButton, SIGNAL(on_deleteButton_clicked()),
+                     this, SLOT(on_deleteButton_clicked()));
+
+    // Disconnect the existing connection to the itemDoubleClicked signal
+    ui->listWidget->disconnect(SIGNAL(itemDoubleClicked(QListWidgetItem*)));
+
+    // Connect the itemDoubleClicked signal to the new slot
+    QObject::connect(ui->listWidget, SIGNAL(itemDoubleClicked(QListWidgetItem*)),
+                     this, SLOT(on_listWidget_itemDoubleClicked(QListWidgetItem*)));
 
     // Connect the signal/slot for filtering tasks
     connect(ui->categoryFilterComboBox, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::on_categoryFilterComboBox_currentIndexChanged);
@@ -104,34 +115,75 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->highPriorityCheckBox, &QCheckBox::stateChanged, this, &MainWindow::on_highPriorityCheckBox_stateChanged);
 
 }
+void MainWindow::addCategoriesToComboboxes()
+{
 
+    // Add categories to the combo boxes
+    for (const auto &category : categories) {
+        // Check if category is already in the combobox before adding it
+        if (ui->categoryComboBox->findText(category.name) == -1) {
+            ui->categoryComboBox->addItem(category.name);
+        }
+        if (ui->categoryFilterComboBox->findText(category.name) == -1) {
+            ui->categoryFilterComboBox->addItem(category.name);
+        }
+    }
+
+    // Add "All" category to the filter combo box
+
+    ui->categoryFilterComboBox->setCurrentIndex(0);
+}
 
 MainWindow::~MainWindow()
 {
-    QSettings settings("IUT", "ToDoApp", this);
-    settings.beginWriteArray("categories");
-    for (int i = 0; i < categories.size(); i++) {
-        settings.setArrayIndex(i);
-        settings.setValue("name", categories[i].name);
-        settings.setValue("color", categories[i].color.name()); // Save the color as a string
-    }
-    settings.endArray();
-
-    settings.beginWriteArray("tasks");
-    for (int i = 0; i < ui->listWidget->count(); i++) {
-        QListWidgetItem *item = ui->listWidget->item(i);
-        TodoItem *todoItem = dynamic_cast<TodoItem *>(item);
-        settings.setArrayIndex(i);
-        settings.setValue("text", item->text());
-        settings.setValue("category", todoItem->category.name);
-        settings.setValue("categoryColor", todoItem->category.color.name()); // Save the color as a string
-        settings.setValue("isHighPriority", todoItem->isHighPriority);
-    }
-    settings.endArray();
-
-
+    saveList();
     delete ui;
 }
+
+void MainWindow::on_deleteButton_clicked()
+{
+    qDebug() << "Item deleted!";
+
+    // Get the selected items from the list widget
+
+    // Remove the selected items from the list widget and settings file
+    QSettings settings("IUT", "ToDoApp", this);
+    settings.beginWriteArray("tasks");
+
+    QList<QListWidgetItem *> selectedItems = ui->listWidget->selectedItems();
+
+    // Track the number of items deleted
+    int numDeleted = 0;
+
+    for (int i = 0; i < ui->listWidget->count(); i++) {
+        QListWidgetItem *item = ui->listWidget->item(i);
+        if (selectedItems.contains(item)) {
+            delete item;
+            numDeleted++;
+        } else {
+            settings.setArrayIndex(i - numDeleted); // Update the index in the settings file
+            settings.setValue("text", item->text());
+            TodoItem *todoItem = dynamic_cast<TodoItem *>(item);
+            if (todoItem) {
+                settings.setValue("category", todoItem->category.name);
+                settings.setValue("categoryColor", todoItem->category.color.name());
+                settings.setValue("isHighPriority", todoItem->isHighPriority);
+            } else {
+                settings.setValue("category", "");
+                settings.setValue("categoryColor", "");
+                settings.setValue("isHighPriority", false);
+            }
+        }
+    }
+
+    settings.endArray();
+}
+
+
+
+
+
+
 
 void MainWindow::on_pushButton_clicked()
 {
@@ -185,32 +237,83 @@ void MainWindow::on_pushButton_clicked()
     }
 }
 
-
-
 void MainWindow::on_listWidget_itemDoubleClicked(QListWidgetItem *item)
 {
-    delete item;
-
-    // Check if there are any remaining items
-    if (ui->listWidget->count() == 0) {
-        // If there are no remaining items, close the application
-        QApplication::exit();
-    }
-}
-
-
-
-void MainWindow::on_listWidget_itemClicked(QListWidgetItem *item)
-{
+    qDebug() << "Item double-clicked!";
     TodoItem *todoItem = dynamic_cast<TodoItem *>(item);
-    if (todoItem) {
-        // Update the check box state to reflect the priority level
-        ui->checkBox->setChecked(todoItem->isHighPriority);
+    if (!todoItem) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Edit Task"));
+
+    // Create a layout for the dialog
+    QVBoxLayout layout(&dialog);
+
+    // Create a label for the task edit field
+    QLabel label;
+    label.setText(tr("Task:"));
+    layout.addWidget(&label);
+
+    // Create the task edit field and add it to the dialog
+    QLineEdit taskEdit;
+    taskEdit.setText(item->text());
+    layout.addWidget(&taskEdit);
+
+    // Create a label for the priority checkbox
+    QLabel priorityLabel;
+    priorityLabel.setText(tr("Priority:"));
+    layout.addWidget(&priorityLabel);
+
+    // Create the priority checkbox and add it to the dialog
+    QCheckBox priorityCheckBox;
+    priorityCheckBox.setChecked(todoItem->isHighPriority);
+    layout.addWidget(&priorityCheckBox);
+
+    // Create the OK and Cancel buttons and add them to the dialog
+    QDialogButtonBox buttonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &dialog);
+    layout.addWidget(&buttonBox);
+
+    // Connect the OK and Cancel buttons to the appropriate slots
+    connect(&buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    // Display the dialog and wait for the user to close it
+    if (dialog.exec() == QDialog::Accepted) {
+        // Update the task text
+        QString newTaskText = taskEdit.text();
+        item->setText(newTaskText);
+
+        // Update the priority level
+        bool newPriority = priorityCheckBox.isChecked();
+        todoItem->isHighPriority = newPriority;
+        if (newPriority) {
+            QPixmap pixmap(16, 16);
+            pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            painter.setPen(Qt::red);
+            painter.setBrush(Qt::red);
+            painter.drawEllipse(0, 0, 16, 16);
+            item->setIcon(QIcon(pixmap));
+        } else {
+            item->setIcon(QIcon());
+        }
+
+        // Update the task in the settings file
+        QSettings settings("IUT", "ToDoApp", this);
+        int taskSize = settings.beginReadArray("tasks");
+        for (int i = 0; i < taskSize; i++) {
+            settings.setArrayIndex(i);
+            if (settings.value("text").toString() == item->text()) {
+                settings.setValue("text", newTaskText);
+                settings.setValue("isHighPriority", todoItem->isHighPriority);
+                break;
+            }
+        }
+        settings.endArray();
     }
 }
-
-
-
 
 void MainWindow::on_categoryFilterComboBox_currentIndexChanged(int index)
 {
@@ -253,6 +356,32 @@ void MainWindow::on_highPriorityCheckBox_stateChanged(int state)
         }
     }
 }
+
+void MainWindow::saveList()
+{
+    QSettings settings("IUT", "ToDoApp", this);
+    settings.beginWriteArray("categories");
+    for (int i = 0; i < categories.size(); i++) {
+        settings.setArrayIndex(i);
+        settings.setValue("name", categories[i].name);
+        settings.setValue("color", categories[i].color.name()); // Save the color as a string
+    }
+    settings.endArray();
+
+    settings.beginWriteArray("tasks");
+    for (int i = 0; i < ui->listWidget->count(); i++) {
+        QListWidgetItem *item = ui->listWidget->item(i);
+        TodoItem *todoItem = dynamic_cast<TodoItem *>(item);
+        settings.setArrayIndex(i);
+        settings.setValue("text", item->text());
+        settings.setValue("category", todoItem->category.name);
+        settings.setValue("categoryColor", todoItem->category.color.name()); // Save the color as a string
+        settings.setValue("isHighPriority", todoItem->isHighPriority);
+    }
+    settings.endArray();
+
+}
+
 
 
 
